@@ -7,6 +7,7 @@ import os
 # CONFIG
 REFRESH_INTERVAL_MS = 300000  # 5 minuti
 ARCHIVE_DIR = "archive"
+CARD_HEIGHT = "600px"  # Altezza fissa per tutte le card
 st.set_page_config(page_title="Notizie in Sintesi", layout="wide")
 
 # Crea cartella archive se non esiste
@@ -26,7 +27,7 @@ def format_update_time(dt_str):
         return dt_str
 
 # -------------------------------
-# Funzione per caricare notizie (robusta)
+# Funzione per caricare notizie
 def load_news(file_path):
     if not os.path.exists(file_path):
         return None
@@ -48,7 +49,6 @@ def load_news(file_path):
 
         title = lines[i].strip()
         i += 1
-
         while i < len(lines) and not lines[i].strip():
             i += 1
         if i >= len(lines):
@@ -94,14 +94,12 @@ def load_news(file_path):
     return news_list
 
 # -------------------------------
-# DIALOG / MODAL con layout a due colonne
+# MODAL notizia completa
 @st.dialog("Notizia completa", width="large")
 def show_full_news(item):
-    col_img, col_text = st.columns([3, 2])  # 60% immagine, 40% testo
-
+    col_img, col_text = st.columns([3, 2])
     with col_img:
         st.image(item["image_url"], use_container_width=True)
-
     with col_text:
         st.markdown(f"### {item['title']}")
         st.caption(f"Ultimo aggiornamento: {item['formatted_time']}")
@@ -109,16 +107,13 @@ def show_full_news(item):
         st.markdown(item["content"])
 
 # -------------------------------
-# SIDEBAR: ultimi 7 giorni + calendario
+# SIDEBAR navigazione
 st.sidebar.title("📅 Navigazione")
-
 today = date.today()
 
-# Inizializza selected_date se non esiste
 if "selected_date" not in st.session_state:
     st.session_state.selected_date = today
 
-# Ultimi 7 giorni - con rerun per aggiornare subito
 for offset in range(7):
     day_date = today - timedelta(days=offset)
     weekday_it = WEEKDAYS_IT[day_date.weekday()]
@@ -130,9 +125,8 @@ for offset in range(7):
 
     if st.sidebar.button(label, use_container_width=True, key=f"btn_day_{offset}"):
         st.session_state.selected_date = day_date
-        st.rerun()  # Forza aggiornamento immediato
+        st.rerun()
 
-# Calendario
 st.sidebar.markdown("---")
 cal_date = st.sidebar.date_input(
     "Vai a data specifica",
@@ -144,7 +138,6 @@ if cal_date != st.session_state.selected_date:
     st.session_state.selected_date = cal_date
     st.rerun()
 
-# Data selezionata finale
 selected_date = st.session_state.selected_date
 
 # -------------------------------
@@ -156,7 +149,6 @@ else:
     file_path = os.path.join(ARCHIVE_DIR, selected_date.strftime("%Y%m%d") + ".txt")
 
 news = load_news(file_path)
-
 date_display = "oggi" if selected_date == today else selected_date.strftime("%d/%m/%Y")
 
 # -------------------------------
@@ -175,21 +167,45 @@ else:
     cols = st.columns(3)
     for idx, item in enumerate(news):
         with cols[idx % 3]:
-            with st.container(border=True):
-                # Immagine con titolo sovrapposto
-                st.image(item["image_url"], use_container_width=True)
+            with st.container(border=True, height=600):  # ALTEZZA FISSA
+                # Immagine con aspect ratio mantenuto e spazio bianco sotto se necessario
+                st.image(
+                    item["image_url"],
+                    use_container_width=True
+                )
+
+                # Titolo sovrapposto
                 st.markdown(
-                    f"<div style='position: relative; margin-top: -70px; padding: 8px 12px; background: rgba(0,0,0,0.7); color: white; border-radius: 0 0 8px 8px;'><b>{item['title']}</b></div>",
+                    f"<div style='position: relative; margin-top: -70px; padding: 10px 14px; background: rgba(0,0,0,0.75); color: white; border-radius: 0 0 8px 8px;'><b>{item['title']}</b></div>",
                     unsafe_allow_html=True
                 )
 
+                # Data aggiornamento
                 st.caption(f"Ultimo aggiornamento: {item['formatted_time']}")
 
+                # Sintesi testo
                 sintesi = item["content"][:280] + ("..." if len(item["content"]) > 280 else "")
                 st.markdown(sintesi)
 
-                if st.button("Leggi tutto", key=f"read_{idx}_{selected_date}"):
-                    show_full_news(item)
+                # Pulsanti in fondo
+                btn_col1, btn_col2 = st.columns([2, 2])
+
+                with btn_col1:
+                    if st.button("Leggi tutto", key=f"read_{idx}_{selected_date}", use_container_width=True):
+                        show_full_news(item)
+
+                with btn_col2:
+                    share_text = f"{item['title']} — {item['formatted_time']}"
+                    share_url = f"https://notizie-sintesi.streamlit.app/?date={selected_date.strftime('%Y%m%d')}&news={idx}"
+                    # Nota: l'URL reale sarà quello del tuo deploy
+                    if st.button("Condividi 🔗", key=f"share_{idx}_{selected_date}", use_container_width=True):
+                        js = f"""
+                        <script>
+                        navigator.clipboard.writeText("{share_text}\\n{share_url}");
+                        alert("Link copiato negli appunti!");
+                        </script>
+                        """
+                        st.components.v1.html(js, height=0)
 
 # Footer
 st.sidebar.markdown("---")

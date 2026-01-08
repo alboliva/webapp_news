@@ -1,5 +1,5 @@
 === DUMP PROGETTO ===
-Generato: 2026-01-08 10:29:36
+Generato: 2026-01-08 11:14:10
 Cartella: /Users/alberto.oliva/Library/CloudStorage/OneDrive-Accenture/projects/notebook/webapp_news
 
 
@@ -49,14 +49,8 @@ print(f"Dimensione: {os.path.getsize(output_file) / 1024:.1f} KB")
 FILE: requirements.txt
 ======================================================================
 
-streamlit>=1.40
-streamlit-authenticator>=0.4.2
+streamlit==1.32.0
 streamlit-autorefresh
-feedparser               # per RSS
-requests
-newspaper3k              # opzionale per estrarre testo da articoli
-sqlite3                  # built-in
-# opzionale: groq         # se usi LLM per summary
 
 
 ======================================================================
@@ -72,6 +66,12 @@ Mancati controlli durante la pandemia e paure di accuse di razzismo hanno favori
 Reazioni: repubblicani come House GOP e Mario Nawfal enfatizzano fine delle frodi e procure aggiuntive da AG Pam Bondi. Josh Hawley propone un ispettore generale federale. Elon Musk chiede di perseguire Walz come facilitatore. Rep. Nancy Mace ha tentato di subpoena record immigratori di Ilhan Omar per accuse di matrimonio fraudolento (mozione respinta). Rep. Anna Paulina Luna ha riferito Walz e AG Keith Ellison al DOJ per complicità.
 Indagini federali continuano con sequestri e udienze future.
 2026-01-08 10:45:00
+
+“Eat Real Food”: RFK Jr. capovolge la piramide alimentare americana
+https://npr.brightspotcdn.com/dims3/default/strip/false/crop/3654x2056+0+0/resize/1600/quality/85/format/webp/?url=http%3A%2F%2Fnpr-brightspot.s3.amazonaws.com%2F71%2Fa0%2F2ae525e54329a9317db001e5baea%2Fdga-1.jpg
+Il Segretario alla Salute Robert F. Kennedy Jr. (RFK Jr.) e la Segretaria all’Agricoltura Brooke Rollins hanno presentato le nuove Dietary Guidelines for Americans 2025-2030, ribattezzate “Eat Real Food”. Si tratta del più significativo reset della politica nutrizionale federale da decenni, in linea con la promessa MAHA (“Make America Healthy Again”) dell’amministrazione Trump.La tradizionale piramide alimentare è stata capovolta: in cima (priorità massima) compaiono verdure, frutta, proteine di alta qualità (carne rossa, pollo, pesce, uova), latticini interi e grassi sani (da fonti naturali come avocado, noci, olio d’oliva). Alla base, in quantità limitata, solo cereali integrali. Sono stati eliminati zuccheri aggiunti, cibi ultra-processati e la “guerra” ai grassi saturi, ritenuti non più demonizzabili.RFK Jr. ha dichiarato guerra agli zuccheri aggiunti, accusati di alimentare obesità, diabete e malattie metaboliche, e ha sottolineato che circa il 50% delle calorie consumate dai bambini americani proviene da cibi ultra-processati, “letteralmente velenosi”. Le linee guida promuovono un maggiore apporto proteico (1,2-1,6 g/kg di peso corporeo al giorno), incoraggiano cibi veri e nutrienti densi, e puntano a combattere l’epidemia di obesità e malattie croniche.Il messaggio è semplice e diretto: “Eat real food”. Le nuove indicazioni, più brevi e basate su evidenze scientifiche, segnano un cambio di paradigma rispetto alle vecchie politiche influenzate dall’industria, privilegiando salute pubblica e alimenti naturali. 
+2026-01-08 07:41:00
+
 
 
 
@@ -182,13 +182,19 @@ def load_news(file_path):
     return news_list
 
 # -------------------------------
-# DIALOG / MODAL per notizia completa
+# DIALOG / MODAL con layout a due colonne
 @st.dialog("Notizia completa", width="large")
 def show_full_news(item):
-    st.image(item["image_url"], use_container_width=True)
-    st.markdown(f"### {item['title']}")
-    st.caption(f"Ultimo aggiornamento: {item['formatted_time']}")
-    st.markdown(item["content"])
+    col_img, col_text = st.columns([3, 2])  # 60% immagine, 40% testo
+
+    with col_img:
+        st.image(item["image_url"], use_container_width=True)
+
+    with col_text:
+        st.markdown(f"### {item['title']}")
+        st.caption(f"Ultimo aggiornamento: {item['formatted_time']}")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown(item["content"])
 
 # -------------------------------
 # SIDEBAR: ultimi 7 giorni + calendario
@@ -196,7 +202,11 @@ st.sidebar.title("📅 Navigazione")
 
 today = date.today()
 
-# Ultimi 7 giorni
+# Inizializza selected_date se non esiste
+if "selected_date" not in st.session_state:
+    st.session_state.selected_date = today
+
+# Ultimi 7 giorni - con rerun per aggiornare subito
 for offset in range(7):
     day_date = today - timedelta(days=offset)
     weekday_it = WEEKDAYS_IT[day_date.weekday()]
@@ -206,16 +216,24 @@ for offset in range(7):
     if offset == 0:
         label += " (oggi)"
 
-    if st.sidebar.button(label, use_container_width=True):
+    if st.sidebar.button(label, use_container_width=True, key=f"btn_day_{offset}"):
         st.session_state.selected_date = day_date
+        st.rerun()  # Forza aggiornamento immediato
 
-# Calendario per date più vecchie
+# Calendario
 st.sidebar.markdown("---")
-new_date = st.sidebar.date_input("Vai a data specifica", value=today, max_value=today)
-if new_date != st.session_state.get("selected_date", today):
-    st.session_state.selected_date = new_date
+cal_date = st.sidebar.date_input(
+    "Vai a data specifica",
+    value=st.session_state.selected_date,
+    max_value=today,
+    key="cal_input"
+)
+if cal_date != st.session_state.selected_date:
+    st.session_state.selected_date = cal_date
+    st.rerun()
 
-selected_date = st.session_state.get("selected_date", today)
+# Data selezionata finale
+selected_date = st.session_state.selected_date
 
 # -------------------------------
 # Caricamento notizie
@@ -261,7 +279,7 @@ else:
                 if st.button("Leggi tutto", key=f"read_{idx}_{selected_date}"):
                     show_full_news(item)
 
-# Footer sidebar
+# Footer
 st.sidebar.markdown("---")
 st.sidebar.caption("Archivio in /archive")
 
