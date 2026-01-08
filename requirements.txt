@@ -1,7 +1,2 @@
-streamlit>=1.40
-streamlit-authenticator>=0.4.2
+streamlit==1.32.0
 streamlit-autorefresh
-feedparser
-requests
-newspaper3k
-sqlite3 # built-in
