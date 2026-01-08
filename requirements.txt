@@ -1,8 +1,7 @@
 streamlit>=1.40
 streamlit-authenticator>=0.4.2
 streamlit-autorefresh
-feedparser               # per RSS
+feedparser
 requests
-newspaper3k              # opzionale per estrarre testo da articoli
-sqlite3                  # built-in
-# opzionale: groq         # se usi LLM per summary
+newspaper3k
+sqlite3 # built-in
