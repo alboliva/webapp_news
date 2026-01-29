@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 from streamlit_autorefresh import st_autorefresh
 
-# --- CONFIGURAZIONE ---
+# --- CONFIGURAZIONE COSTANTI ---
 APP_TITLE = "Notizie RSS – Ieri & Oggi" 
 MAX_ITEMS_PER_FEED = 40
 CACHE_MINUTES = 2 
@@ -65,30 +65,31 @@ def load_all_news():
     all_news.sort(key=lambda x: x['time'], reverse=True)
     return all_news
 
-# --- LOGICA DI NAVIGAZIONE ---
+# --- LOGICA CALLBACK ---
 def on_category_change():
-    """Forza i checkbox della categoria selezionata a True quando si cambia radio button."""
+    """Reset limit e auto-check delle fonti coerenti col radio button."""
     st.session_state.display_limit = INITIAL_DISPLAY
     cat = st.session_state.main_radio_cat
     for _, _, short, cats, _ in RSS_FEEDS:
         if cat == "TUTTE" or cat in cats:
             st.session_state[f"chk_{short}"] = True
 
-# --- UI SETTINGS ---
-st.set_page_config(layout="wide", page_title=APP_TITLE)
-st_autorefresh(interval=120000, key="data_refresh")
-
+# --- INIZIALIZZAZIONE SESSION STATE ---
 if 'seen_links' not in st.session_state:
     st.session_state.seen_links = set()
     st.session_state.first_run = True
 if 'display_limit' not in st.session_state:
     st.session_state.display_limit = INITIAL_DISPLAY
 
-# Inizializzazione Session State per le chiavi dei checkbox
+# Inizializzazione checkbox per ogni feed
 for _, _, short, _, default_val in RSS_FEEDS:
     key = f"chk_{short}"
     if key not in st.session_state:
         st.session_state[key] = default_val
+
+# --- INTERFACCIA ---
+st.set_page_config(layout="wide", page_title=APP_TITLE)
+st_autorefresh(interval=120000, key="data_refresh")
 
 st.title(f"🗞️ {APP_TITLE}")
 main_col, side_col = st.columns([7.8, 2.2], gap="small")
@@ -104,7 +105,6 @@ with side_col:
     st.subheader("⚙️ Filtri")
     all_tags = sorted(list(set(tag for f in RSS_FEEDS for tag in f[3])))
     
-    # Radio button con callback per attivare i checkbox
     selected_category = st.radio(
         "Argomento:", 
         ["TUTTE"] + all_tags, 
@@ -131,11 +131,12 @@ with side_col:
     active_sources = set()
     for name, _, short, cats, _ in RSS_FEEDS:
         key = f"chk_{short}"
+        # Mostriamo il checkbox solo se appartiene alla categoria selezionata
         if selected_category == "TUTTE" or selected_category in cats:
-            # Rimosso parametro 'value' per evitare il conflitto segnalato
             if st.checkbox(name, key=key):
                 active_sources.add(short)
         else:
+            # Se è nascosto, lo consideriamo attivo per il filtraggio solo se era True
             if st.session_state.get(key, False):
                 active_sources.add(short)
 
@@ -151,6 +152,7 @@ with main_col:
         st.session_state.display_limit = INITIAL_DISPLAY
         st.rerun()
 
+    # Applica i filtri
     filtered = [n for n in all_data if (selected_category == "TUTTE" or selected_category in n['categories']) 
                 and n['source_label'] in active_sources and search in n['title'].lower()]
     
@@ -185,4 +187,4 @@ with main_col:
         if final_list:
             text = f"REPORT NEWS - {selected_category}\n" + "="*30 + "\n"
             text += "\n".join([f"[{n['time'].strftime('%H:%M')}] {n['source_label']}: {n['title']}" for n in final_list])
-            st.download_button("📥 Scarica Report TXT", data=text, file_name=f"news_{selected_category.lower()}.txt", use_container_width=True)
+            st.download_button("📥 Scarica Report", data=text, file_name=f"news_{selected_category.lower()}.txt", use_container_width=True)
