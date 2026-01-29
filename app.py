@@ -8,11 +8,11 @@ from streamlit_autorefresh import st_autorefresh
 
 # --- CONFIGURAZIONE ---
 APP_TITLE = "Notizie RSS – Ieri & Oggi" 
-ITEMS_PER_PAGE = 25
 MAX_ITEMS_PER_FEED = 40
-CACHE_MINUTES = 1 
+CACHE_MINUTES = 2 
+INITIAL_DISPLAY = 50 
+INCREMENT_DISPLAY = 50 
 
-# Lista aggiornata: (Nome, URL, Acronimo, [Tag], Default_Checked)
 RSS_FEEDS = [
     ("New York Times USA",      "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",       "NYT USA",      ["AMERICANI", "USA", "STRANIERI"], True),
     ("New York Times World",    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",    "NYT WORLD",    ["AMERICANI", "WORLD", "STRANIERI"], True),
@@ -24,52 +24,67 @@ RSS_FEEDS = [
     ("ANSA Economia",           "https://www.ansa.it/sito/notizie/economia/economia_rss.xml", "ANSA ECO",     ["ECONOMIA", "ITALIA"], True),
     ("Il Sole 24 Ore USA",      "https://www.ilsole24ore.com/rss/mondo--usa.xml",            "S24 USA",      ["WORLD", "ECONOMIA"], True),
     ("Washington Post World",   "https://feeds.washingtonpost.com/rss/world",               "WAPO WORLD",   ["AMERICANI", "WORLD", "STRANIERI"], True),
-    ("The Guardian",            "https://feeds.washingtonpost.com/rss/business",            "GUARDIAN",     ["INGLESI", "WORLD", "STRANIERI"], True),
+    ("The Guardian",            "https://feeds.theguardian.com/theguardian/world/rss",      "GUARDIAN",     ["INGLESI", "WORLD", "STRANIERI"], True),
     ("Al Jazeera",              "http://www.aljazeera.com/xml/rss/all.xml",                 "ALJAZEERA",    ["ARABI", "WORLD", "STRANIERI"], False),
     ("Hong Kong World",         "https://www.scmp.com/rss/92/feed/",                        "HK_WORLD",     ["CINESI", "WORLD", "STRANIERI"], False),
     ("The Japan Times",         "https://www.japantimes.co.jp/feed/",                       "JAP TIMES",    ["GIAPPONESI", "WORLD", "STRANIERI"], False),
+    ("Yahoo! Finance",          "https://finance.yahoo.com/news/rss",                       "Y!BSN",        ["AMERICANI", "ECONOMIA", "STRANIERI"], True),
 ]
 
 def fetch_one_rss(feed_tuple):
-    # Spacchettamento a 5 valori (il quinto lo ignoriamo qui perché serve alla UI)
     display_name, url, short_label, categories, _ = feed_tuple
     try:
-        feed = feedparser.parse(url, agent='Mozilla/5.0')
+        agent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        feed = feedparser.parse(url, agent=agent)
         news = []
         cutoff = datetime.now() - timedelta(days=1)
         for entry in feed.entries[:MAX_ITEMS_PER_FEED]:
             date_str = entry.get('published', entry.get('pubDate', None))
             if date_str:
-                pub = dateparser.parse(date_str).replace(tzinfo=None)
-                if pub >= cutoff:
-                    news.append({
-                        'time': pub,
-                        'source_label': short_label,
-                        'title': entry.title.strip(),
-                        'link': entry.get('link', '#'),
-                        'categories': categories
-                    })
+                try:
+                    pub = dateparser.parse(date_str).replace(tzinfo=None)
+                    if pub >= cutoff:
+                        news.append({
+                            'time': pub,
+                            'source_label': short_label,
+                            'title': entry.title.strip(),
+                            'link': entry.get('link', '#'),
+                            'categories': categories
+                        })
+                except: continue
         return news
     except: return []
 
-@st.cache_data(ttl=60 * CACHE_MINUTES, show_spinner=False)
+@st.cache_data(ttl=60 * CACHE_MINUTES, show_spinner="Sincronizzazione feed...")
 def load_all_news():
     all_news = []
-    with ThreadPoolExecutor(max_workers=15) as ex:
+    with ThreadPoolExecutor(max_workers=25) as ex:
         futures = [ex.submit(fetch_one_rss, f) for f in RSS_FEEDS]
-        for future in as_completed(futures): all_news.extend(future.result())
+        for future in as_completed(futures):
+            all_news.extend(future.result())
     all_news.sort(key=lambda x: x['time'], reverse=True)
     return all_news
 
-# --- INTERFACCIA ---
+# --- LOGICA DI NAVIGAZIONE ---
+def on_category_change():
+    """Forza i checkbox della categoria selezionata a True quando si cambia radio button."""
+    st.session_state.display_limit = INITIAL_DISPLAY
+    cat = st.session_state.main_radio_cat
+    for _, _, short, cats, _ in RSS_FEEDS:
+        if cat == "TUTTE" or cat in cats:
+            st.session_state[f"chk_{short}"] = True
+
+# --- UI SETTINGS ---
 st.set_page_config(layout="wide", page_title=APP_TITLE)
-st_autorefresh(interval=60000, key="data_refresh")
+st_autorefresh(interval=120000, key="data_refresh")
 
 if 'seen_links' not in st.session_state:
     st.session_state.seen_links = set()
     st.session_state.first_run = True
+if 'display_limit' not in st.session_state:
+    st.session_state.display_limit = INITIAL_DISPLAY
 
-# Inizializzazione dei checkbox basata sul valore di default in RSS_FEEDS
+# Inizializzazione Session State per le chiavi dei checkbox
 for _, _, short, _, default_val in RSS_FEEDS:
     key = f"chk_{short}"
     if key not in st.session_state:
@@ -77,33 +92,36 @@ for _, _, short, _, default_val in RSS_FEEDS:
 
 st.title(f"🗞️ {APP_TITLE}")
 main_col, side_col = st.columns([7.8, 2.2], gap="small")
-all_data = load_all_news()
 
+all_data = load_all_news()
 current_links = {n['link'] for n in all_data}
 if st.session_state.first_run:
     st.session_state.seen_links.update(current_links)
     st.session_state.first_run = False
-
 new_links = current_links - st.session_state.seen_links
 
 with side_col:
     st.subheader("⚙️ Filtri")
+    all_tags = sorted(list(set(tag for f in RSS_FEEDS for tag in f[3])))
     
-    all_tags = set()
-    for f in RSS_FEEDS:
-        for tag in f[3]: all_tags.add(tag)
-    
-    tab_labels = ["TUTTE"] + sorted(list(all_tags))
-    selected_category = st.radio("Argomento:", tab_labels, horizontal=True)
+    # Radio button con callback per attivare i checkbox
+    selected_category = st.radio(
+        "Argomento:", 
+        ["TUTTE"] + all_tags, 
+        horizontal=True, 
+        key="main_radio_cat",
+        on_change=on_category_change
+    )
 
     st.write("---")
-    
     c_all, c_none = st.columns(2)
+    
     if c_all.button("✅ Tutti", use_container_width=True):
         for _, _, s, cats, _ in RSS_FEEDS:
             if selected_category == "TUTTE" or selected_category in cats:
                 st.session_state[f"chk_{s}"] = True
         st.rerun()
+        
     if c_none.button("❌ Nessuno", use_container_width=True):
         for _, _, s, cats, _ in RSS_FEEDS:
             if selected_category == "TUTTE" or selected_category in cats:
@@ -114,69 +132,57 @@ with side_col:
     for name, _, short, cats, _ in RSS_FEEDS:
         key = f"chk_{short}"
         if selected_category == "TUTTE" or selected_category in cats:
-            # Il checkbox usa lo stato salvato in session_state
+            # Rimosso parametro 'value' per evitare il conflitto segnalato
             if st.checkbox(name, key=key):
                 active_sources.add(short)
         else:
-            # Se è nascosto, lo consideriamo attivo solo se il suo stato è True
             if st.session_state.get(key, False):
                 active_sources.add(short)
 
 with main_col:
-    r_search, r_btn_clear, r_btn_refresh = st.columns([4, 1.5, 1])
-    search = r_search.text_input("🔍 Cerca nel titolo", key="search_input").lower()
+    r_search, r_btn_clear, r_btn_refresh = st.columns([4, 1.5, 1.2])
+    search = r_search.text_input("🔍 Cerca...", key="search_input").lower()
     
-    r_btn_clear.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
     if r_btn_clear.button("✨ Reset colori", use_container_width=True):
         st.session_state.seen_links.update(current_links)
         st.rerun()
-
-    r_btn_refresh.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
-    if r_btn_refresh.button("↻", use_container_width=True):
+    if r_btn_refresh.button("↻ Aggiorna", use_container_width=True):
         st.cache_data.clear()
-        st.session_state.seen_links.update(current_links)
+        st.session_state.display_limit = INITIAL_DISPLAY
         st.rerun()
 
-    filtered_base = [
-        n for n in all_data 
-        if (selected_category == "TUTTE" or selected_category in n['categories'])
-        and n['source_label'] in active_sources 
-        and search in n['title'].lower()
-    ]
+    filtered = [n for n in all_data if (selected_category == "TUTTE" or selected_category in n['categories']) 
+                and n['source_label'] in active_sources and search in n['title'].lower()]
     
-    news_new = [n for n in filtered_base if n['link'] in new_links]
-    news_old = [n for n in filtered_base if n['link'] not in new_links]
+    news_new = [n for n in filtered if n['link'] in new_links]
+    news_old = [n for n in filtered if n['link'] not in new_links]
     final_list = news_new + news_old
-    
-    # EXPORT
-    with side_col:
-        st.write("---")
-        st.subheader("💾 Esporta")
-        if final_list:
-            text_content = f"REPORT NEWS [{selected_category}] - {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
-            for n in final_list:
-                status = "[NUOVA] " if n['link'] in new_links else ""
-                text_content += f"{status}[{n['time'].strftime('%H:%M')}] {n['source_label']}: {n['title']}\n"
-            st.download_button("📥 Scarica TXT", data=text_content, file_name=f"news_{selected_category.lower()}.txt", use_container_width=True)
 
-    # TABELLA NEWS
-    st.markdown("<hr style='border: 1px solid #333'>", unsafe_allow_html=True)
-    h1, h2, h3 = st.columns([0.9, 1.0, 8.1]) 
-    h1.write("**Data**")
-    h2.write("**Fonte**")
-    h3.write("**Titolo**")
+    st.markdown("<hr style='border: 1px solid #333; margin: 10px 0;'>", unsafe_allow_html=True)
     
-    start = (st.session_state.get('current_page', 1) - 1) * ITEMS_PER_PAGE
-    for n in final_list[start : start + ITEMS_PER_PAGE]:
-        ora = n['time'].strftime("%H:%M")
-        data = n['time'].strftime("%d/%m")
-        is_yellow = n['link'] in new_links
-        bg = "background-color: #fff9c4;" if is_yellow else ""
+    visible_list = final_list[:st.session_state.display_limit]
+    
+    for n in visible_list:
+        ora, data = n['time'].strftime("%H:%M"), n['time'].strftime("%d/%m")
+        is_new = n['link'] in new_links
+        bg = "background-color: #fff9c4;" if is_new else ""
         
-        c1, c2, c3 = st.columns([0.9, 1.0, 8.1])
-        c1.markdown(f"<div style='{bg} font-size:0.85em; color:gray;'>{data} <b>{ora}</b></div>", unsafe_allow_html=True)
-        c2.markdown(f"<div style='{bg} font-size:0.85em; color:#e63946; font-weight:bold;'>{n['source_label']}</div>", unsafe_allow_html=True)
+        c1, c2, c3 = st.columns([0.8, 1.2, 8.0])
+        c1.markdown(f"<div style='{bg} font-size:0.8em; color:gray; line-height:1.1;'>{data}<br><b>{ora}</b></div>", unsafe_allow_html=True)
+        c2.markdown(f"<div style='{bg} font-size:0.8em; color:#e63946; font-weight:bold;'>{n['source_label']}</div>", unsafe_allow_html=True)
         c3.markdown(f"<div style='{bg} font-size:0.95em;'><a href='{n['link']}' target='_blank' style='text-decoration:none; color:#1d3557;'>{n['title']}</a></div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin: 0; opacity: 0.1;'>", unsafe_allow_html=True)
 
-    st.caption(f"News: {len(final_list)} | Nuove: {len(new_links)}")
+    if len(final_list) > st.session_state.display_limit:
+        if st.button(f"👇 Mostra altre {INCREMENT_DISPLAY} notizie", use_container_width=True):
+            st.session_state.display_limit += INCREMENT_DISPLAY
+            st.rerun()
+
+    st.caption(f"News: {len(final_list)} | Visualizzate: {len(visible_list)} | Nuove: {len(new_links)}")
+
+    with side_col:
+        st.write("---")
+        if final_list:
+            text = f"REPORT NEWS - {selected_category}\n" + "="*30 + "\n"
+            text += "\n".join([f"[{n['time'].strftime('%H:%M')}] {n['source_label']}: {n['title']}" for n in final_list])
+            st.download_button("📥 Scarica Report TXT", data=text, file_name=f"news_{selected_category.lower()}.txt", use_container_width=True)
