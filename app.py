@@ -55,7 +55,7 @@ def load_all_news():
     all_news.sort(key=lambda x: x['time'], reverse=True)
     return all_news
 
-# --- UI ---
+# --- UI SETTINGS ---
 st.set_page_config(layout="wide", page_title=APP_TITLE)
 st_autorefresh(interval=120000, key="data_refresh")
 
@@ -74,9 +74,25 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
+# --- GESTIONE STATO NOTIZIE ---
+if 'seen_links' not in st.session_state:
+    st.session_state.seen_links = set()
+    st.session_state.first_run = True # Flag per il caricamento iniziale
+
 st.title(f"🗞️ {APP_TITLE}")
 main_col, side_col = st.columns([7.8, 2.2], gap="small")
 all_data = load_all_news()
+
+# Logica di marcatura
+current_links = {n['link'] for n in all_data}
+
+# Se è la prima volta che l'app gira, segna tutto come già visto
+if st.session_state.first_run:
+    st.session_state.seen_links.update(current_links)
+    st.session_state.first_run = False
+
+# Calcola le notizie realmente nuove (arrivate dopo il primo caricamento)
+new_links_found = current_links - st.session_state.seen_links
 
 with side_col:
     st.subheader("⚙️ Fonti")
@@ -88,12 +104,10 @@ with side_col:
         for _, _, s in RSS_FEEDS: st.session_state[f"chk_{s}"] = False
         st.rerun()
 
-    active_sources = set()
-    for name, _, short in RSS_FEEDS:
-        if st.checkbox(name, value=st.session_state.get(f"chk_{short}", True), key=f"chk_{short}"):
-            active_sources.add(short)
+    active_sources = {short for name, _, short in RSS_FEEDS if st.checkbox(name, value=st.session_state.get(f"chk_{short}", True), key=f"chk_{short}")}
     
     st.write("---")
+    st.subheader("💾 Esporta")
     search_term = st.session_state.get("search_input", "").lower()
     filtered_for_download = [n for n in all_data if n['source'] in active_sources and search_term in n['title'].lower()]
     
@@ -104,10 +118,16 @@ with side_col:
         st.download_button("📥 Scarica TXT", data=text_content, file_name="news.txt", use_container_width=True)
 
 with main_col:
-    r_search, r_btn = st.columns([5, 1.5])
+    r_search, r_btn_clear, r_btn_refresh = st.columns([4, 1.5, 1])
     search = r_search.text_input("🔍 Cerca nel titolo", key="search_input").lower()
-    r_btn.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
-    if r_btn.button("↻ Aggiorna", use_container_width=True):
+    
+    r_btn_clear.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+    if r_btn_clear.button("✨ Reset colori", use_container_width=True):
+        st.session_state.seen_links.update(current_links)
+        st.rerun()
+
+    r_btn_refresh.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
+    if r_btn_refresh.button("↻", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -122,7 +142,6 @@ with main_col:
     if p_next.button("Succ ▶"): st.session_state.current_page = min(pages, st.session_state.current_page + 1); st.rerun()
 
     st.markdown("<hr style='border: 1px solid #333'>", unsafe_allow_html=True)
-    # Ricalibrate: leggermente più spazio alla prima colonna [0.9] per evitare il wrap
     h1, h2, h3 = st.columns([0.9, 1.0, 8.1]) 
     h1.markdown("<b style='font-size:12px'>Data/Ora</b>", unsafe_allow_html=True)
     h2.markdown("<b style='font-size:12px'>Fonte</b>", unsafe_allow_html=True)
@@ -135,17 +154,18 @@ with main_col:
             ora = n['time'].strftime("%H:%M")
             data = n['time'].strftime("%d/%m")
             
+            # Giallo solo per i link non presenti in seen_links
+            is_new = n['link'] in new_links_found
+            bg_style = "background-color: #fff9c4; border-radius: 2px;" if is_new else ""
+            
             r_col1, r_col2, r_col3 = st.columns([0.9, 1.0, 8.1])
             
-            # Colonna 1: Data e Ora sulla stessa riga con truncate per sicurezza
-            r_col1.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:gray' class='truncate-text'>{data} <b>{ora}</b></div>", unsafe_allow_html=True)
-            
-            # Colonna 2: Acronimo Fonte
-            r_col2.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:#e63946; font-weight:bold' class='truncate-text'>{n['source']}</div>", unsafe_allow_html=True)
-            
-            # Colonna 3: Titolo troncato
-            r_col3.markdown(f"<div style='margin-bottom:-18px; font-size:0.95em' class='truncate-text'><a href='{n['link']}' target='_blank' style='text-decoration:none; color:#1d3557;'>{n['title']}</a></div>", unsafe_allow_html=True)
+            # Applichiamo lo stile bg solo se is_new è True
+            r_col1.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:gray; {bg_style}' class='truncate-text'>{data} <b>{ora}</b></div>", unsafe_allow_html=True)
+            r_col2.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:#e63946; font-weight:bold; {bg_style}' class='truncate-text'>{n['source']}</div>", unsafe_allow_html=True)
+            r_col3.markdown(f"<div style='margin-bottom:-18px; font-size:0.95em; {bg_style}' class='truncate-text'><a href='{n['link']}' target='_blank' style='text-decoration:none; color:#1d3557;'>{n['title']}</a></div>", unsafe_allow_html=True)
             
             st.markdown("<hr style='opacity:0.2'>", unsafe_allow_html=True)
 
-    st.caption(f"Update: {time.strftime('%H:%M:%S')} | Auto-refresh: 2m")
+    status_txt = f"Nuove: {len(new_links_found)}" if len(new_links_found) > 0 else "Nessuna nuova notizia"
+    st.caption(f"Update: {time.strftime('%H:%M:%S')} | {status_txt} | Auto-refresh: 2m")
