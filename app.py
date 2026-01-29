@@ -4,29 +4,29 @@ from dateutil import parser as dateparser
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
+from streamlit_autorefresh import st_autorefresh
 
-# --- CONFIGURAZIONE PARAMETRICA ---
+# --- CONFIGURAZIONE ---
 APP_TITLE = "Notizie RSS – Ieri & Oggi" 
 ITEMS_PER_PAGE = 25
 MAX_ITEMS_PER_FEED = 40
-CACHE_MINUTES = 10
+CACHE_MINUTES = 2 
 
 RSS_FEEDS = [
     ("New York Times USA",      "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",       "NYT USA"),
-    ("New York Times World",    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",    "NYT WORLD"),
+    ("New York Times World",    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",    "NYT WRD"),
     ("New York Times Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", "NYT BSN"),
-    ("Google News IT",          "https://news.google.it/news/rss",                          "GNews"),
-    ("Repubblica",              "https://www.repubblica.it/rss/homepage/rss2.0.xml",          "Rep"),
-    ("Il Messaggero",           "https://www.ilmessaggero.it/?sez=XML&p=search&args[box]=Home&limit=20&layout=rss", "Mess"),
+    ("Google News IT",          "https://news.google.it/news/rss",                          "GNEWS"),
+    ("Repubblica",              "https://www.repubblica.it/rss/homepage/rss2.0.xml",          "REP"),
+    ("Il Messaggero",           "https://www.ilmessaggero.it/?sez=XML&p=search&args[box]=Home&limit=20&layout=rss", "MESS"),
     ("ANSA Generale",           "https://www.ansa.it/sito/ansait_rss.xml",                  "ANSA"),
-    ("ANSA Economia",           "https://www.ansa.it/sito/notizie/economia/economia_rss.xml", "ANSA Eco"),
-    ("Sole 24 Ore Politica",    "https://www.ilsole24ore.com/rss/italia--politica.xml",      "S24 Politica"),
+    ("ANSA Economia",           "https://www.ansa.it/sito/notizie/economia/economia_rss.xml", "ANSA ECO"),
+    ("Sole 24 Ore Politica",    "https://www.ilsole24ore.com/rss/italia--politica.xml",      "S24 POL"),
     ("Sole 24 Ore USA",         "https://www.ilsole24ore.com/rss/mondo--usa.xml",            "S24 USA"),
-    ("Il Post",                 "https://www.ilpost.it/feed",                               "Il Post"),
-    ("First Online",            "https://www.firstonline.info/feed",                        "First"),
+    ("Il Post",                 "https://www.ilpost.it/feed",                               "POST"),
+    ("First Online",            "https://www.firstonline.info/feed",                        "FIRST"),
 ]
 
-# --- FUNZIONI DI RECUPERO ---
 def fetch_one_rss(feed_tuple):
     display_name, url, short_label = feed_tuple
     try:
@@ -40,7 +40,6 @@ def fetch_one_rss(feed_tuple):
                     news.append({
                         'time': pub,
                         'source': short_label,
-                        'display_source': display_name,
                         'title': entry.title.strip(),
                         'link': entry.get('link', '#')
                     })
@@ -56,19 +55,31 @@ def load_all_news():
     all_news.sort(key=lambda x: x['time'], reverse=True)
     return all_news
 
-# --- INTERFACCIA UTENTE ---
+# --- UI ---
 st.set_page_config(layout="wide", page_title=APP_TITLE)
+st_autorefresh(interval=120000, key="data_refresh")
+
+st.markdown("""
+    <style>
+    [data-testid="stVerticalBlock"] > div { padding-top: 0rem; padding-bottom: 0rem; }
+    hr { margin-top: 2px !important; margin-bottom: 2px !important; }
+    .truncate-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        display: block;
+        width: 100%;
+    }
+    div[data-testid="stCheckbox"] { margin-bottom: -12px; }
+    </style>
+    """, unsafe_allow_html=True)
+
 st.title(f"🗞️ {APP_TITLE}")
-
-# Layout: Sinistra per Notizie, Destra per Filtri
-main_col, side_col = st.columns([7, 2.5], gap="large")
-
-# Caricamento dati
+main_col, side_col = st.columns([7.8, 2.2], gap="small")
 all_data = load_all_news()
 
 with side_col:
     st.subheader("⚙️ Fonti")
-    # Pulsanti di massa
     c_all, c_none = st.columns(2)
     if c_all.button("✅ Tutti", use_container_width=True):
         for _, _, s in RSS_FEEDS: st.session_state[f"chk_{s}"] = True
@@ -77,94 +88,64 @@ with side_col:
         for _, _, s in RSS_FEEDS: st.session_state[f"chk_{s}"] = False
         st.rerun()
 
-    st.write("---")
     active_sources = set()
     for name, _, short in RSS_FEEDS:
         if st.checkbox(name, value=st.session_state.get(f"chk_{short}", True), key=f"chk_{short}"):
             active_sources.add(short)
     
     st.write("---")
-    st.subheader("💾 Esporta")
-    
-    # Preparazione dati per export
     search_term = st.session_state.get("search_input", "").lower()
     filtered_for_download = [n for n in all_data if n['source'] in active_sources and search_term in n['title'].lower()]
     
     if filtered_for_download:
-        text_content = f"REPORT NOTIZIE - {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
-        text_content += "="*60 + "\n\n"
-        
+        text_content = f"REPORT - {datetime.now().strftime('%d/%m %H:%M')}\n"
         for n in filtered_for_download:
-            line = f"[{n['time'].strftime('%d/%m %H:%M')}] {n['display_source'].upper()}\n"
-            line += f"TITOLO: {n['title']}\n"
-            line += f"LINK: {n['link']}\n"
-            line += "-"*40 + "\n"
-            text_content += line
-
-        st.download_button(
-            label="📥 Scarica Notizie (.txt)",
-            data=text_content,
-            file_name=f"notizie_rss_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-            mime="text/plain",
-            use_container_width=True
-        )
-    else:
-        st.info("Nessuna notizia da scaricare.")
+            text_content += f"[{n['time'].strftime('%H:%M')}] {n['source']}: {n['title']}\n"
+        st.download_button("📥 Scarica TXT", data=text_content, file_name="news.txt", use_container_width=True)
 
 with main_col:
-    # Barra superiore: Ricerca e Refresh
     r_search, r_btn = st.columns([5, 1.5])
     search = r_search.text_input("🔍 Cerca nel titolo", key="search_input").lower()
-    
     r_btn.markdown('<div style="margin-top:28px;"></div>', unsafe_allow_html=True)
     if r_btn.button("↻ Aggiorna", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
     filtered = [n for n in all_data if n['source'] in active_sources and search in n['title'].lower()]
-
-    # Paginazione
     total = len(filtered)
     pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
     if 'current_page' not in st.session_state: st.session_state.current_page = 1
-    if st.session_state.current_page > pages: st.session_state.current_page = 1
-
+    
     p_prev, p_info, p_next = st.columns([1, 2, 1])
-    if p_prev.button("◀ Prec") and st.session_state.current_page > 1:
-        st.session_state.current_page -= 1
-        st.rerun()
-    p_info.markdown(f"<p style='text-align:center; padding-top:5px'>Pagina <b>{st.session_state.current_page}</b> di {pages} ({total} notizie)</p>", unsafe_allow_html=True)
-    if p_next.button("Succ ▶") and st.session_state.current_page < pages:
-        st.session_state.current_page += 1
-        st.rerun()
+    if p_prev.button("◀ Prec"): st.session_state.current_page = max(1, st.session_state.current_page - 1); st.rerun()
+    p_info.markdown(f"<p style='text-align:center; font-size:13px;'>Pagina <b>{st.session_state.current_page}</b> di {pages}</p>", unsafe_allow_html=True)
+    if p_next.button("Succ ▶"): st.session_state.current_page = min(pages, st.session_state.current_page + 1); st.rerun()
 
-    # --- TABELLA NOTIZIE (LAYOUT UNIFORME) ---
-    st.markdown("---")
-    h1, h2, h3 = st.columns([1.2, 2.0, 6.8])
-    h1.write("**Data / Ora**")
-    h2.write("**Fonte**")
-    h3.write("**Titolo**")
-    st.divider()
+    st.markdown("<hr style='border: 1px solid #333'>", unsafe_allow_html=True)
+    # Ricalibrate: leggermente più spazio alla prima colonna [0.9] per evitare il wrap
+    h1, h2, h3 = st.columns([0.9, 1.0, 8.1]) 
+    h1.markdown("<b style='font-size:12px'>Data/Ora</b>", unsafe_allow_html=True)
+    h2.markdown("<b style='font-size:12px'>Fonte</b>", unsafe_allow_html=True)
+    h3.markdown("<b style='font-size:12px'>Titolo</b>", unsafe_allow_html=True)
+    st.markdown("<hr>", unsafe_allow_html=True)
 
     with st.container():
         start = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
-        end = start + ITEMS_PER_PAGE
-        
-        for n in filtered[start:end]:
+        for n in filtered[start : start + ITEMS_PER_PAGE]:
             ora = n['time'].strftime("%H:%M")
             data = n['time'].strftime("%d/%m")
             
-            r_col1, r_col2, r_col3 = st.columns([1.2, 2.0, 6.8])
+            r_col1, r_col2, r_col3 = st.columns([0.9, 1.0, 8.1])
             
-            # Layout Data e Ora
-            r_col1.markdown(f"<span style='color:gray; font-size:0.9em'>{data} {ora}</span>", unsafe_allow_html=True)
+            # Colonna 1: Data e Ora sulla stessa riga con truncate per sicurezza
+            r_col1.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:gray' class='truncate-text'>{data} <b>{ora}</b></div>", unsafe_allow_html=True)
             
-            # Layout Fonte (NYT e testate italiane uniformate)
-            r_col2.markdown(f"<span style='color:#e63946; font-weight:bold'>{n['display_source']}</span>", unsafe_allow_html=True)
+            # Colonna 2: Acronimo Fonte
+            r_col2.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:#e63946; font-weight:bold' class='truncate-text'>{n['source']}</div>", unsafe_allow_html=True)
             
-            # Layout Titolo
-            r_col3.markdown(f"[{n['title']}]({n['link']})")
+            # Colonna 3: Titolo troncato
+            r_col3.markdown(f"<div style='margin-bottom:-18px; font-size:0.95em' class='truncate-text'><a href='{n['link']}' target='_blank' style='text-decoration:none; color:#1d3557;'>{n['title']}</a></div>", unsafe_allow_html=True)
             
-            st.markdown('<div style="margin-top:-10px; border-bottom:1px solid #f0f0f0"></div>', unsafe_allow_html=True)
+            st.markdown("<hr style='opacity:0.2'>", unsafe_allow_html=True)
 
-    st.caption(f"Ultimo aggiornamento: {time.strftime('%H:%M:%S')}")
+    st.caption(f"Update: {time.strftime('%H:%M:%S')} | Auto-refresh: 2m")
