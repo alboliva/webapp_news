@@ -1,107 +1,54 @@
 import streamlit as st
-import requests
-from bs4 import BeautifulSoup
 import feedparser
 from dateutil import parser as dateparser
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import time
 
-# ─── CONFIG ────────────────────────────────────────
-MAX_WORKERS = 8
-CACHE_MINUTES = 8
-FINVIZ_MAX_ITEMS = 80
-RSS_MAX_ITEMS_PER_FEED = 30
+# ─── CONFIGURAZIONE ─────────────────────────────────────────────────────
 
-# Fonti disponibili (etichetta mostrata : identificatore fonte)
-FONTI = {
-    "Finviz News":      "Finviz News",
-    "Finviz Blogs":     "Finviz Blogs",
-    "Google News":      "GNews",
-    "Repubblica":       "Rep",
-    "Washington Post":  "Wapo",
-    "NYT Business":     "NYT BSN",
-    "ANSA":             "ANSA",
-    "Sole 24 Ore Politica": "S24 Politica",
-    # Aggiungi altre se vuoi
-}
+RSS_FEEDS = [
+    ("Google News IT",          "https://news.google.it/news/rss",                 "GNews"),
+    ("Repubblica",              "https://www.repubblica.it/rss/homepage/rss2.0.xml", "Rep"),
+    ("Il Messaggero",           "https://www.ilmessaggero.it/?sez=XML&p=search&args[box]=Home&limit=20&layout=rss", "Mess"),
+    ("ANSA Generale",           "https://www.ansa.it/sito/ansait_rss.xml",         "ANSA"),
+    ("ANSA Economia",           "https://www.ansa.it/sito/notizie/economia/economia_rss.xml", "ANSA Eco"),
+    ("Sole 24 Ore Politica",    "https://www.ilsole24ore.com/rss/italia--politica.xml", "S24 Politica"),
+    ("Sole 24 Ore USA",         "https://www.ilsole24ore.com/rss/mondo--usa.xml",   "S24 USA"),
+    ("Il Post",                 "https://www.ilpost.it/feed",                      "Il Post"),
+    ("First Online",            "https://www.firstonline.info/feed",               "First"),
+    # Aggiungi qui altre fonti se vuoi
+]
 
-SELECTED_RSS = {
-    "GNews": ("https://news.google.it/news/rss", "GNews"),
-    "Rep": ("https://www.repubblica.it/rss/homepage/rss2.0.xml", "Rep"),
-    "Wapo": ("https://feeds.washingtonpost.com/rss/business?itid=lk_inline_manual_32", "Wapo"),
-    "NYT BSN": ("https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", "NYT BSN"),
-    "ANSA": ("https://www.ansa.it/sito/ansait_rss.xml", "ANSA"),
-    "S24 Politica": ("https://www.ilsole24ore.com/rss/italia--politica.xml", "S24 Politica"),
-}
+ITEMS_PER_PAGE = 25
+MAX_ITEMS_PER_FEED = 40
+CACHE_MINUTES = 10
 
-# ─── FUNZIONI ──────────────────────────────────────
+# ─── FUNZIONI ──────────────────────────────────────────────────────────
 
 def normalize_time(dt):
     if dt.tzinfo:
-        return dt.astimezone(timezone.utc).replace(tzinfo=None)
+        return dt.astimezone().replace(tzinfo=None)
     return dt
 
-def fetch_finviz(v=1, label='Finviz News'):
-    try:
-        r = requests.get(f'https://finviz.com/news.ashx?v={v}', headers={'User-Agent': 'Mozilla/5.0'}, timeout=6)
-        r.raise_for_status()
-        soup = BeautifulSoup(r.text, 'html.parser')
-        table = soup.find('table', id='news-table')
-        if not table: return []
-
-        news, count = [], 0
-        current_date = None
-        now = datetime.now()
-        yesterday = now - timedelta(days=1)
-
-        for tr in table.find_all('tr'):
-            if count >= FINVIZ_MAX_ITEMS: break
-            tds = tr.find_all('td')
-            if len(tds) == 1 and tds[0].get('align') == 'center':
-                current_date = tds[0].text.strip()
-            elif len(tds) >= 3:
-                time_str = tds[0].text.strip()
-                a = tds[2].find('a', class_='nn-tab-link') or tds[2].find('a')
-                if a:
-                    full_str = f"{current_date} {time_str}" if current_date else time_str
-                    try:
-                        pub = dateparser.parse(full_str, default=now)
-                        if pub > now: pub = pub.replace(year=now.year - 1)
-                        pub = normalize_time(pub)
-                        if pub.date() >= yesterday.date():
-                            news.append({
-                                'time': pub,
-                                'source': label,
-                                'title': a.text.strip(),
-                                'link': a['href']
-                            })
-                            count += 1
-                    except:
-                        pass
-        return news
-    except:
-        return []
-
-def fetch_one_rss(pair):
-    url, label = pair
+def fetch_one_rss(feed_tuple):
+    display_name, url, short_label = feed_tuple
     try:
         feed = feedparser.parse(url, agent='Mozilla/5.0')
-        news, count = [], 0
-        yesterday = datetime.now() - timedelta(days=1)
-        for e in feed.entries:
-            if count >= RSS_MAX_ITEMS_PER_FEED: break
-            if hasattr(e, 'published'):
+        news = []
+        cutoff = datetime.now() - timedelta(days=1)
+        for entry in feed.entries[:MAX_ITEMS_PER_FEED]:
+            if hasattr(entry, 'published'):
                 try:
-                    pub = normalize_time(dateparser.parse(e.published))
-                    if pub.date() >= yesterday.date():
+                    pub = normalize_time(dateparser.parse(entry.published))
+                    if pub >= cutoff:
                         news.append({
                             'time': pub,
-                            'source': label,
-                            'title': e.title.strip(),
-                            'link': e.get('link', '#')
+                            'source': short_label,
+                            'display_source': display_name,
+                            'title': entry.title.strip(),
+                            'link': entry.get('link', '#')
                         })
-                        count += 1
                 except:
                     pass
         return news
@@ -109,147 +56,151 @@ def fetch_one_rss(pair):
         return []
 
 @st.cache_data(ttl=60 * CACHE_MINUTES, show_spinner=False)
-def collect_all_news():
+def load_all_news():
     all_news = []
-    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
-        futures = [
-            ex.submit(fetch_finviz, 1, 'Finviz News'),
-            ex.submit(fetch_finviz, 2, 'Finviz Blogs'),
-        ]
-        for label, pair in SELECTED_RSS.items():
-            futures.append(ex.submit(fetch_one_rss, pair))
-
-        for f in as_completed(futures):
-            all_news.extend(f.result())
-
+    with ThreadPoolExecutor(max_workers=10) as ex:
+        futures = [ex.submit(fetch_one_rss, feed) for feed in RSS_FEEDS]
+        for future in as_completed(futures):
+            all_news.extend(future.result())
+    
     all_news.sort(key=lambda x: x['time'], reverse=True)
-
+    
     seen = set()
     unique = []
     for n in all_news:
-        key = (n['title'][:60], n['link'][:60])
+        key = (n['title'][:70], n['link'][:70])
         if key not in seen:
             seen.add(key)
             unique.append(n)
+    
     return unique
 
-# ─── STREAMLIT APP ─────────────────────────────────
+# ─── STREAMLIT APP ─────────────────────────────────────────────────────
 
-st.title("Notizie Veloci - Oggi e Ieri")
+st.title("Notizie RSS – Ieri & Oggi")
 
-# Layout: notizie al centro/sinistra, checkbox a destra fuori dal box
-main_col, sidebar_col = st.columns([5, 2])
+# Layout principale
+main_col, side_col = st.columns([5, 2])
 
 with main_col:
-    # Pulsanti navigazione
-    col1, col2, col3 = st.columns(3)
+    # Pulsanti azione
+    col1, col2, col3 = st.columns([1, 1, 1])
     with col1:
-        if st.button("↑ Torna in cima"):
-            st.components.v1.html("""
-            <script>
-            const box = parent.document.querySelector('#news-scroll-box');
-            if (box) box.scrollTop = 0;
-            </script>
-            """, height=0)
+        if st.button("↑ In cima"):
+            st.components.v1.html(
+                '<script>parent.document.querySelector("#newsbox").scrollTop=0;</script>',
+                height=0
+            )
     with col2:
-        if st.button("↓ Scendi di un blocco"):
-            st.components.v1.html("""
-            <script>
-            const box = parent.document.querySelector('#news-scroll-box');
-            if (box) box.scrollTop += box.clientHeight * 0.8;
-            </script>
-            """, height=0)
+        if st.button("↓ Scorri giù"):
+            st.components.v1.html(
+                '<script>const b=parent.document.querySelector("#newsbox"); b.scrollTop += b.clientHeight*0.75;</script>',
+                height=0
+            )
     with col3:
-        if st.button("↻ Aggiorna"):
+        if st.button("↻ Ricarica dati"):
             st.cache_data.clear()
             st.rerun()
 
-    # Ricerca
-    search_text = st.text_input("Cerca nel titolo o fonte:", "").strip().lower()
+    search = st.text_input("Cerca nel titolo", "").strip().lower()
 
-    # Caricamento dati
-    with st.spinner("Caricamento notizie..."):
-        all_news = collect_all_news()
+with side_col:
+    st.markdown("**Sorgenti**")
+    
+    # Inizializzazione stato sorgenti (tutte selezionate di default)
+    if 'active_src' not in st.session_state:
+        st.session_state.active_src = {short: True for _, _, short in RSS_FEEDS}
 
-    # Filtri
-    if 'fonti_selezionate' not in st.session_state:
-        st.session_state.fonti_selezionate = {k: True for k in FONTI.keys()}
+    # Pulsanti Seleziona/Deseleziona tutte
+    col_all, col_none = st.columns(2)
+    with col_all:
+        if st.button("Seleziona tutte"):
+            for short in st.session_state.active_src:
+                st.session_state.active_src[short] = True
+            st.rerun()
+    with col_none:
+        if st.button("Deseleziona tutte"):
+            for short in st.session_state.active_src:
+                st.session_state.active_src[short] = False
+            st.rerun()
 
-    fonti_attive = {k for k, v in st.session_state.fonti_selezionate.items() if v}
-    filtered_by_source = [n for n in all_news if n['source'] in fonti_attive]
-
-    filtered_final = filtered_by_source
-    if search_text:
-        filtered_final = [
-            n for n in filtered_by_source
-            if search_text in n['title'].lower() or search_text in n['source'].lower()
-        ]
-
-    # Rendering notizie
-    st.markdown(f"**Mostrate: {len(filtered_final)}** su {len(all_news)} totali")
-
-    html = '<div id="news-scroll-box" class="scroll-box">'
-    html += '<div><strong>Data Ora   Fonte           Titolo</strong></div><hr>'
-
-    for n in filtered_final:
-        t = n['time'].strftime("%d/%m %H:%M")
-        s = n['source'][:14].ljust(14)
-        title_safe = n['title'].replace('&', '&amp;').replace('<', '&lt;').replace('"', '&quot;')
-        html += f'<div class="news-item"><span class="time">{t}</span> <span class="source">{s}</span> '
-        html += f'<a href="{n["link"]}" target="_blank" class="title-link">{title_safe}</a></div>'
-
-    html += '</div>'
-
-    st.markdown(html, unsafe_allow_html=True)
-
-with sidebar_col:
-    st.markdown("**Seleziona fonti**")
-    for fonte in FONTI:
-        checked = st.checkbox(
-            fonte,
-            value=st.session_state.fonti_selezionate[fonte],
-            key=f"chk_{fonte}"
+    # Checkbox singole (leggono sempre da session_state)
+    for disp_name, _, short in RSS_FEEDS:
+        st.checkbox(
+            disp_name,
+            value=st.session_state.active_src[short],
+            key=f"chk_{short}",
+            on_change=st.rerun  # Forza rerun quando cambi una singola
         )
-        st.session_state.fonti_selezionate[fonte] = checked
+        # Sincronizza stato
+        st.session_state.active_src[short] = st.session_state[f"chk_{short}"]
 
-# Stile
-st.markdown("""
-<style>
-    .scroll-box {
-        height: 620px;
-        overflow-y: scroll;
-        border: 1px solid #ccc;
-        padding: 12px;
-        background: #f8f9fa;
-        font-family: Consolas, monospace;
-        font-size: 14px;
-    }
-    .news-item {
-        margin: 10px 0;
-        padding-bottom: 8px;
-        border-bottom: 1px solid #eee;
-    }
-    .time { color: #555; }
-    .source { color: #0066cc; font-weight: bold; }
-    .title-link { color: #1e40af; text-decoration: none; font-size: 15px; }
-    .title-link:hover { text-decoration: underline; color: #1e3a8a; }
-</style>
-""", unsafe_allow_html=True)
+# ── Caricamento e filtri ──────────────────────────────────────────────
 
-# Auto-scroll (opzionale – commenta la riga scroll() per disattivarlo)
-st.markdown("""
-<script>
-const box = parent.document.querySelector('#news-scroll-box');
-if (box) {
-    let timer;
-    function scroll() {
-        box.scrollTop += 1;
-        if (box.scrollTop + box.clientHeight >= box.scrollHeight - 5) {
-            setTimeout(() => { box.scrollTop = 0; }, 5000);
-        }
-        timer = setTimeout(scroll, 120);
-    }
-    // scroll();   // ← commenta questa riga per disattivare lo scroll automatico
-}
-</script>
-""", unsafe_allow_html=True)
+all_news = load_all_news()
+
+active_sources = {short for short, active in st.session_state.active_src.items() if active}
+filtered = [n for n in all_news if n['source'] in active_sources]
+
+if search:
+    filtered = [n for n in filtered if search in n['title'].lower()]
+
+# Paginazione – reset a pagina 1 se il filtro cambia e page è troppo alta
+total = len(filtered)
+pages = max(1, (total + ITEMS_PER_PAGE - 1) // ITEMS_PER_PAGE)
+
+if 'current_page' not in st.session_state:
+    st.session_state.current_page = 1
+
+if st.session_state.current_page > pages:
+    st.session_state.current_page = 1
+
+page = st.session_state.current_page
+start = (page - 1) * ITEMS_PER_PAGE
+end = min(start + ITEMS_PER_PAGE, total)
+
+page_news = filtered[start:end]
+
+# Pulsanti paginazione
+col_prev, col_info, col_next = st.columns([1, 3, 1])
+with col_prev:
+    if st.button("◀ Precedente") and page > 1:
+        st.session_state.current_page -= 1
+        st.rerun()
+with col_info:
+    st.markdown(f"**Pagina {page} di {pages}** – {total} notizie totali")
+with col_next:
+    if st.button("Successiva ▶") and page < pages:
+        st.session_state.current_page += 1
+        st.rerun()
+
+# ── Tabella notizie allineata ────────────────────────────────────────
+
+st.markdown("### Notizie")
+
+html = '''
+<div id="newsbox" style="height:620px; overflow-y:auto; border:1px solid #ccc; padding:12px; background:#fdfdfd; font-family:Consolas,monospace; font-size:14px;">
+  <div style="display:grid; grid-template-columns: 110px 180px 1fr; font-weight:bold; margin-bottom:8px; padding-bottom:6px; border-bottom:2px solid #aaa;">
+    <div>Data/Ora</div>
+    <div>Fonte</div>
+    <div>Titolo</div>
+  </div>
+'''
+
+for n in page_news:
+    t = n['time'].strftime("%d/%m %H:%M")
+    src = n['display_source'][:20]
+    title = n['title'].replace('&','&amp;').replace('<','&lt;').replace('"','&quot;')
+    html += f'''
+  <div style="display:grid; grid-template-columns: 110px 180px 1fr; padding:6px 0; border-bottom:1px solid #eee; align-items:start;">
+    <div style="color:#555;">{t}</div>
+    <div style="color:#0066cc; font-weight:600;">{src}</div>
+    <div><a href="{n['link']}" target="_blank" style="color:#1a0dab; text-decoration:none;">{title}</a></div>
+  </div>
+'''
+
+html += '</div>'
+
+st.markdown(html, unsafe_allow_html=True)
+
+st.caption(f"Caricamento cache: {len(all_news)} notizie totali • Ultimo refresh: {time.strftime('%H:%M:%S')}")
