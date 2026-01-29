@@ -10,7 +10,7 @@ from streamlit_autorefresh import st_autorefresh
 APP_TITLE = "Notizie RSS – Ieri & Oggi" 
 ITEMS_PER_PAGE = 25
 MAX_ITEMS_PER_FEED = 40
-CACHE_MINUTES = 2 
+CACHE_MINUTES = 1  # Cache ridotta per garantire il refresh reale ogni 2 min
 
 RSS_FEEDS = [
     ("New York Times USA",      "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",       "NYT USA"),
@@ -57,7 +57,9 @@ def load_all_news():
 
 # --- UI SETTINGS ---
 st.set_page_config(layout="wide", page_title=APP_TITLE)
-st_autorefresh(interval=120000, key="data_refresh")
+
+# POLLING AUTOMATICO: Aggiorna ogni 120 secondi. Restituisce il numero di refresh eseguiti.
+refresh_count = st_autorefresh(interval=120000, key="data_refresh")
 
 st.markdown("""
     <style>
@@ -77,7 +79,7 @@ st.markdown("""
 # --- GESTIONE STATO NOTIZIE ---
 if 'seen_links' not in st.session_state:
     st.session_state.seen_links = set()
-    st.session_state.first_run = True # Flag per il caricamento iniziale
+    st.session_state.first_run = True
 
 st.title(f"🗞️ {APP_TITLE}")
 main_col, side_col = st.columns([7.8, 2.2], gap="small")
@@ -86,12 +88,12 @@ all_data = load_all_news()
 # Logica di marcatura
 current_links = {n['link'] for n in all_data}
 
-# Se è la prima volta che l'app gira, segna tutto come già visto
+# Al primo avvio assoluto, consideriamo tutto "già visto" per partire con la tabella bianca
 if st.session_state.first_run:
     st.session_state.seen_links.update(current_links)
     st.session_state.first_run = False
 
-# Calcola le notizie realmente nuove (arrivate dopo il primo caricamento)
+# Identifica cosa è arrivato dopo il primo caricamento
 new_links_found = current_links - st.session_state.seen_links
 
 with side_col:
@@ -154,18 +156,16 @@ with main_col:
             ora = n['time'].strftime("%H:%M")
             data = n['time'].strftime("%d/%m")
             
-            # Giallo solo per i link non presenti in seen_links
             is_new = n['link'] in new_links_found
             bg_style = "background-color: #fff9c4; border-radius: 2px;" if is_new else ""
             
             r_col1, r_col2, r_col3 = st.columns([0.9, 1.0, 8.1])
             
-            # Applichiamo lo stile bg solo se is_new è True
             r_col1.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:gray; {bg_style}' class='truncate-text'>{data} <b>{ora}</b></div>", unsafe_allow_html=True)
             r_col2.markdown(f"<div style='margin-bottom:-18px; font-size:0.85em; color:#e63946; font-weight:bold; {bg_style}' class='truncate-text'>{n['source']}</div>", unsafe_allow_html=True)
             r_col3.markdown(f"<div style='margin-bottom:-18px; font-size:0.95em; {bg_style}' class='truncate-text'><a href='{n['link']}' target='_blank' style='text-decoration:none; color:#1d3557;'>{n['title']}</a></div>", unsafe_allow_html=True)
             
             st.markdown("<hr style='opacity:0.2'>", unsafe_allow_html=True)
 
-    status_txt = f"Nuove: {len(new_links_found)}" if len(new_links_found) > 0 else "Nessuna nuova notizia"
-    st.caption(f"Update: {time.strftime('%H:%M:%S')} | {status_txt} | Auto-refresh: 2m")
+    status_txt = f"Nuove: {len(new_links_found)}" if len(new_links_found) > 0 else "Nessuna novità"
+    st.caption(f"Ciclo Auto-refresh: {refresh_count} | Ultimo Update: {time.strftime('%H:%M:%S')} | {status_txt}")
