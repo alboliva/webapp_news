@@ -58,7 +58,7 @@ def load_all_news():
 
 # --- UI SETTINGS ---
 st.set_page_config(layout="wide", page_title=APP_TITLE)
-refresh_count = st_autorefresh(interval=120000, key="data_refresh")
+refresh_count = st_autorefresh(interval=60000, key="data_refresh")
 
 st.markdown("""
     <style>
