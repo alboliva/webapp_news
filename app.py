@@ -14,17 +14,17 @@ CACHE_MINUTES = 1
 
 # Lista con MULTI-TAG: (Nome, URL, Acronimo, [Lista Categorie])
 RSS_FEEDS = [
-    ("NYT USA",      "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",       "NYT USA",   ["AMERICANI", "USA"]),
-    ("NYT World",    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",    "NYT WRD",   ["AMERICANI", "WORLD"]),
-    ("NYT Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", "NYT BSN",   ["AMERICANI", "ECONOMIA"]),
+    ("New York Times USA",      "https://rss.nytimes.com/services/xml/rss/nyt/US.xml",       "NYT USA",   ["AMERICANI", "USA"]),
+    ("New York Times World",    "https://rss.nytimes.com/services/xml/rss/nyt/World.xml",    "NYT WORLD",   ["AMERICANI", "WORLD"]),
+    ("New York Times Business", "https://rss.nytimes.com/services/xml/rss/nyt/Business.xml", "NYT BSN",   ["AMERICANI", "ECONOMIA"]),
     ("Google News IT", "https://news.google.it/news/rss",                         "GNEWS",     ["WORLD", "ITALIA"]),
     ("Repubblica",    "https://www.repubblica.it/rss/homepage/rss2.0.xml",         "REP",       ["WORLD", "ITALIA"]),
     ("Il Messaggero", "https://www.ilmessaggero.it/?sez=XML&p=search&args[box]=Home&limit=20&layout=rss", "IL MSGR", ["WORLD", "ITALIA"]),
     ("ANSA Generale", "https://www.ansa.it/sito/ansait_rss.xml",                  "ANSA",      ["WORLD", "ITALIA"]),
     ("ANSA Economia", "https://www.ansa.it/sito/notizie/economia/economia_rss.xml", "ANSA ECO", ["ECONOMIA", "ITALIA"]),
-    ("S24 Politica",  "https://www.ilsole24ore.com/rss/italia--politica.xml",      "S24 POL",   ["ITALIA", "POLITICA"]),
-    ("S24 USA",       "https://www.ilsole24ore.com/rss/mondo--usa.xml",            "S24 USA",   ["WORLD", "ECONOMIA"]),
-    ("Yahoo! Finance",       "https://finance.yahoo.com/news/rss",   "Y!BSN",      ["AMERICANI", "ECONOMIA"]),
+    ("Il Sole 23 Ore USA",       "https://www.ilsole24ore.com/rss/mondo--usa.xml",            "S24 USA",   ["WORLD", "ECONOMIA"]),
+    ("Washington Post World",       "https://feeds.washingtonpost.com/rss/world",   "WAPO WORLD",      ["AMERICANI", "WORLD"]),
+    ("Washington Post Business",       "https://feeds.washingtonpost.com/rss/business",   "WAPO BSN",      ["AMERICANI", "ECONOMIA"]),
 ]
 
 def fetch_one_rss(feed_tuple):
