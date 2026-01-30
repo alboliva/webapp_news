@@ -69,30 +69,38 @@ def load_all_news():
 
 # --- CALLBACKS ---
 def on_radio_change():
-    """Modifica lo stato dei checkbox basandosi sulla categoria selezionata."""
     st.session_state.current_page = 1
     cat = st.session_state.main_cat
-    if cat != "TUTTE":
-        for _, _, short, cats, _ in RSS_FEEDS:
-            st.session_state[f"chk_{short}"] = (cat in cats)
+
+    if cat == "TUTTE":
+        for _, _, short, _, _ in RSS_FEEDS:
+            st.session_state[f"chk_{short}"] = True
     else:
-        # Se torni su TUTTE, potresti voler riaccendere quelli di default 
-        # o lasciare quelli correnti. Qui li lasciamo come sono.
-        pass
+        for _, _, short, cats, _ in RSS_FEEDS:
+            if cat in cats:
+                st.session_state[f"chk_{short}"] = True
+            # Gli altri rimangono come erano prima (non forziamo False)
 
 def reset_pagination():
     st.session_state.current_page = 1
 
 # --- INIZIALIZZAZIONE ---
-if 'seen_links' not in st.session_state: st.session_state.seen_links = set()
-if 'first_run' not in st.session_state: st.session_state.first_run = True
-if 'current_page' not in st.session_state: st.session_state.current_page = 1
+if 'seen_links' not in st.session_state: 
+    st.session_state.seen_links = set()
+if 'first_run' not in st.session_state: 
+    st.session_state.first_run = True
+if 'current_page' not in st.session_state: 
+    st.session_state.current_page = 1
 
-# Inizializza i checkbox solo se non esistono già nello session_state
+# Checkbox partono dai valori indicati in RSS_FEEDS (ultimo elemento della tupla)
 for _, _, short, _, default_val in RSS_FEEDS:
     key = f"chk_{short}"
     if key not in st.session_state:
         st.session_state[key] = default_val
+
+# Imposta categoria iniziale se non esiste
+if "main_cat" not in st.session_state:
+    st.session_state.main_cat = "TUTTE"
 
 # --- INTERFACCIA ---
 st.set_page_config(layout="wide", page_title=APP_TITLE)
@@ -102,7 +110,7 @@ st.markdown("""
     <style>
     [data-testid="stVerticalBlock"] > div { padding-top: 0rem; padding-bottom: 0rem; }
     .news-row { font-size: 0.92em; line-height: 1.6; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    [data-testid="stSidebar"] button { height: 42px !important; }
+    button { height: 42px !important; }
     div[data-testid="stRadio"] label { font-size: 13px !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -119,37 +127,53 @@ new_links = current_links - st.session_state.seen_links
 
 with side_col:
     st.subheader("⚙️ Fonti")
-    c_all, c_none = st.columns(2)
-    sel_cat = st.session_state.get("main_cat", "TUTTE")
 
-    # I bottoni ora comandano lo stato corrente senza guardare i default hardcoded
-    if c_all.button("ALL", icon="✅", use_container_width=True):
-        for _, _, s, cats, _ in RSS_FEEDS:
-            if sel_cat == "TUTTE" or sel_cat in cats:
-                st.session_state[f"chk_{s}"] = True
-        st.rerun()
-        
-    if c_none.button("NONE", icon="❌", use_container_width=True):
-        for _, _, s, cats, _ in RSS_FEEDS:
-            if sel_cat == "TUTTE" or sel_cat in cats:
-                st.session_state[f"chk_{s}"] = False
-        st.rerun()
+    # Pulsante download
+    if st.button("⬇️ Scarica filtrate (.txt)", use_container_width=True):
+        filtered = [n for n in all_data 
+                    if n['source_label'] in active_sources 
+                    and st.session_state.get("search_in", "").lower() in n['title'].lower()]
+        final_list = [n for n in filtered if n['link'] in new_links] + \
+                     [n for n in filtered if n['link'] not in new_links]
+                     
+        if final_list:
+            lines = []
+            lines.append(f"Notizie filtrate – {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+            lines.append(f"Totale: {len(final_list)}")
+            lines.append(f"Categoria: {st.session_state.get('main_cat', 'TUTTE')}")
+            lines.append(f"Ricerca: '{st.session_state.get('search_in', '')}'" if st.session_state.get("search_in") else "Nessuna ricerca")
+            lines.append("-" * 70)
+            
+            for n in final_list:
+                time_str = n['time'].strftime("%d/%m/%Y %H:%M")
+                stato = "NUOVA" if n['link'] in new_links else "letta"
+                lines.append(f"[{time_str}] {n['source_label']} – {stato}")
+                lines.append(n['title'])
+                lines.append(n['link'])
+                lines.append("")
+            
+            content = "\n".join(lines)
+            st.download_button(
+                label="Avvia download",
+                data=content,
+                file_name=f"notizie_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
+                mime="text/plain"
+            )
+        else:
+            st.info("Nessuna notizia da scaricare al momento.")
 
     st.write("---")
+    
     active_sources = set()
+    sel_cat = st.session_state.get("main_cat", "TUTTE")
+    
     for name, _, short, cats, _ in RSS_FEEDS:
-        key = f"chk_{short}"
-        # Se siamo in una categoria specifica, mostriamo solo i feed pertinenti
         if sel_cat == "TUTTE" or sel_cat in cats:
-            # Il checkbox legge il valore corrente dallo session_state tramite la sua key
-            if st.checkbox(name, key=key):
+            if st.checkbox(name, key=f"chk_{short}"):
                 active_sources.add(short)
-        else:
-            # Se il feed non appartiene alla categoria, lo ignoriamo anche se era True
-            pass
 
 with main_col:
-    # 1. CATEGORIE (Radio)
+    # 1. CATEGORIE
     all_tags = sorted(list(set(tag for f in RSS_FEEDS for tag in f[3])))
     st.radio(
         "Seleziona Categoria:", 
@@ -162,6 +186,7 @@ with main_col:
 
     # 2. CONTROLLI
     ctrl_1, ctrl_2, ctrl_3, ctrl_4, ctrl_5, ctrl_6 = st.columns([3.5, 1, 1, 0.8, 1, 0.8])
+    
     search = ctrl_1.text_input("🔍 Cerca...", key="search_in", on_change=reset_pagination, label_visibility="collapsed").lower()
     
     if ctrl_2.button("✨ Letto", use_container_width=True):
@@ -171,7 +196,6 @@ with main_col:
         st.cache_data.clear()
         st.rerun()
 
-    # FILTRAGGIO DINAMICO basato solo sui checkbox ATTIVI
     filtered = [n for n in all_data if n['source_label'] in active_sources and search in n['title'].lower()]
     final_list = [n for n in filtered if n['link'] in new_links] + [n for n in filtered if n['link'] not in new_links]
     
@@ -189,7 +213,7 @@ with main_col:
 
     st.markdown("<hr style='margin: 5px 0; border: 1px solid #444;'>", unsafe_allow_html=True)
 
-    # 3. RENDER NEWS (Compatto su una riga)
+    # 3. RENDER NEWS
     start_idx = (st.session_state.current_page - 1) * ITEMS_PER_PAGE
     for n in final_list[start_idx : start_idx + ITEMS_PER_PAGE]:
         time_str, is_new = n['time'].strftime("%d/%m %H:%M"), n['link'] in new_links
