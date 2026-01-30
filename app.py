@@ -127,9 +127,19 @@ new_links = current_links - st.session_state.seen_links
 
 with side_col:
     st.subheader("⚙️ Fonti")
+    
+    active_sources = set()
+    sel_cat = st.session_state.get("main_cat", "TUTTE")
+    
+    for name, _, short, cats, _ in RSS_FEEDS:
+        if sel_cat == "TUTTE" or sel_cat in cats:
+            if st.checkbox(name, key=f"chk_{short}"):
+                active_sources.add(short)
 
+            
     # Pulsante download
-    if st.button("⬇️ Scarica filtrate (.txt)", use_container_width=True):
+    if st.button("⬇️ Scarica filtrate", use_container_width=True):
+        print (active_sources)
         filtered = [n for n in all_data 
                     if n['source_label'] in active_sources 
                     and st.session_state.get("search_in", "").lower() in n['title'].lower()]
@@ -154,7 +164,7 @@ with side_col:
             
             content = "\n".join(lines)
             st.download_button(
-                label="Avvia download",
+                label="Download TXT",
                 data=content,
                 file_name=f"notizie_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
                 mime="text/plain"
@@ -164,13 +174,13 @@ with side_col:
 
     st.write("---")
     
-    active_sources = set()
-    sel_cat = st.session_state.get("main_cat", "TUTTE")
+    # active_sources = set()
+    # sel_cat = st.session_state.get("main_cat", "TUTTE")
     
-    for name, _, short, cats, _ in RSS_FEEDS:
-        if sel_cat == "TUTTE" or sel_cat in cats:
-            if st.checkbox(name, key=f"chk_{short}"):
-                active_sources.add(short)
+    # for name, _, short, cats, _ in RSS_FEEDS:
+    #     if sel_cat == "TUTTE" or sel_cat in cats:
+    #         if st.checkbox(name, key=f"chk_{short}"):
+    #             active_sources.add(short)
 
 with main_col:
     # 1. CATEGORIE
